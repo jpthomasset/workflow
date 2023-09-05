@@ -1,5 +1,8 @@
+use std::fmt::Display;
+
 use reqwest::Client;
 use reqwest::Error as ReqwestError;
+use reqwest::StatusCode;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -55,16 +58,24 @@ pub struct JiraStatus {
 
 #[derive(Debug, Error)]
 pub enum JiraError {
-    #[error("Cannot create http client {0}")]
-    CannotCreateClient(ReqwestError),
-    #[error("Remote server error {0}")]
-    RemoteServerError(ReqwestError),
-    #[error("Invalid server response {0}")]
-    ResponseError(ReqwestError),
+    #[error("{0}")]
+    RequestError(ReqwestError),
     #[error("Invalid server url {0}")]
     InvalidUrl(ParseError),
-    #[error("Issue not found")]
-    IssueNotFound,
+    #[error("Issue {0} not found")]
+    IssueNotFound(String),
+}
+
+impl From<ParseError> for JiraError {
+    fn from(value: ParseError) -> Self {
+        JiraError::InvalidUrl(value)
+    }
+}
+
+impl From<ReqwestError> for JiraError {
+    fn from(value: ReqwestError) -> Self {
+        JiraError::RequestError(value)
+    }
 }
 
 impl JiraUser {
@@ -73,9 +84,21 @@ impl JiraUser {
     }
 }
 
+impl Display for JiraUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl JiraToken {
     pub fn new(token: String) -> Self {
         Self(token)
+    }
+}
+
+impl Display for JiraToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -89,7 +112,7 @@ impl TryFrom<&JiraConfig> for JiraServer {
     type Error = JiraError;
 
     fn try_from(config: &JiraConfig) -> Result<Self, Self::Error> {
-        let host = Url::parse(&config.host).map_err(JiraError::InvalidUrl)?;
+        let host = Url::parse(&config.host)?;
         let user = JiraUser(config.user.clone());
         let token = JiraToken(config.token.clone());
         Ok(JiraServer {
@@ -100,53 +123,31 @@ impl TryFrom<&JiraConfig> for JiraServer {
 }
 
 impl JiraServer {
-    pub fn from(config: &JiraConfig) -> Result<JiraServer, JiraError> {
-        let host = Url::parse(&config.host).map_err(JiraError::InvalidUrl)?;
-        let user = JiraUser(config.user.clone());
-        let token = JiraToken(config.token.clone());
-        Ok(JiraServer {
-            host,
-            credentials: JiraCredentials { user, token },
+    pub async fn get_issue(&self, key_or_id: String) -> Result<JiraIssue, JiraError> {
+        let url = self.host.join("/rest/api/2/issue/")?.join(&key_or_id)?;
+
+        let client = Client::builder().build()?;
+
+        let response = client
+            .get(url)
+            .basic_auth(&self.credentials.user, Some(&self.credentials.token))
+            .send()
+            .await?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(JiraError::IssueNotFound(key_or_id));
+        }
+
+        let rest_issue = response.error_for_status()?.json::<JiraRestIssue>().await?;
+
+        Ok(JiraIssue {
+            id: rest_issue.id,
+            key: rest_issue.key,
+            summary: rest_issue.fields.summary,
+            status: JiraStatus {
+                id: rest_issue.fields.status.id,
+                name: rest_issue.fields.status.name,
+            },
         })
     }
-
-    pub async fn get_issue(&self, key_or_id: String) -> Result<JiraIssue, JiraError> {
-        let url = self
-            .host
-            .join("/rest/api/2/issue/")
-            .map_err(parse_error)?
-            .join(&key_or_id)
-            .map_err(parse_error)?;
-
-        let client = Client::builder()
-            .build()
-            .map_err(JiraError::CannotCreateClient)?;
-
-        client
-            .get(url)
-            .basic_auth(&self.credentials.user.0, Some(&self.credentials.token.0))
-            .send()
-            .await
-            .map_err(JiraError::RemoteServerError)?
-            .error_for_status()
-            .map_err(|_| JiraError::IssueNotFound)?
-            .json::<JiraRestIssue>()
-            .await
-            .map_err(JiraError::ResponseError)
-            .map(|rest_issue| -> JiraIssue {
-                JiraIssue {
-                    id: rest_issue.id,
-                    key: rest_issue.key,
-                    summary: rest_issue.fields.summary,
-                    status: JiraStatus {
-                        id: rest_issue.fields.status.id,
-                        name: rest_issue.fields.status.name,
-                    },
-                }
-            })
-    }
-}
-
-fn parse_error(e: ParseError) -> JiraError {
-    JiraError::InvalidUrl(e)
 }
