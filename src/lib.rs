@@ -1,3 +1,4 @@
+pub mod adapt_err;
 pub mod config;
 pub mod git;
 pub mod jira;

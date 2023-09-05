@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+use crate::adapt_err::AdaptErr;
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
     pub jira: Option<JiraConfig>,
@@ -26,21 +28,9 @@ pub struct UrlValidator {}
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("Configuration error {0}")]
-    ConfyError(ConfyError),
+    ConfyError(#[from] ConfyError),
     #[error("Input error {0}")]
-    InquireError(InquireError),
-}
-
-impl From<ConfyError> for ConfigError {
-    fn from(value: ConfyError) -> Self {
-        ConfigError::ConfyError(value)
-    }
-}
-
-impl From<InquireError> for ConfigError {
-    fn from(value: InquireError) -> Self {
-        ConfigError::InquireError(value)
-    }
+    InquireError(#[from] InquireError),
 }
 
 impl StringValidator for UrlValidator {
@@ -54,11 +44,11 @@ impl StringValidator for UrlValidator {
 
 impl Config {
     pub fn load() -> Result<Self, ConfigError> {
-        Ok(confy::load(env!("CARGO_PKG_NAME"), None)?)
+        confy::load(env!("CARGO_PKG_NAME"), None).adapt()
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        Ok(confy::store(env!("CARGO_PKG_NAME"), None, self)?)
+        confy::store(env!("CARGO_PKG_NAME"), None, self).adapt()
     }
 
     pub fn is_set(&self) -> bool {
