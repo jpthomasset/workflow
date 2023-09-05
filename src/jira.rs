@@ -123,8 +123,8 @@ impl TryFrom<&JiraConfig> for JiraServer {
 }
 
 impl JiraServer {
-    pub async fn get_issue(&self, key_or_id: String) -> Result<JiraIssue, JiraError> {
-        let url = self.host.join("/rest/api/2/issue/")?.join(&key_or_id)?;
+    pub async fn get_issue(&self, key_or_id: &str) -> Result<JiraIssue, JiraError> {
+        let url = self.host.join("/rest/api/2/issue/")?.join(key_or_id)?;
 
         let client = Client::builder().build()?;
 
@@ -135,7 +135,7 @@ impl JiraServer {
             .await?;
 
         if response.status() == StatusCode::NOT_FOUND {
-            return Err(JiraError::IssueNotFound(key_or_id));
+            return Err(JiraError::IssueNotFound(key_or_id.to_string()));
         }
 
         let rest_issue = response.error_for_status()?.json::<JiraRestIssue>().await?;

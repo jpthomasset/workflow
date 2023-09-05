@@ -6,7 +6,7 @@ use inquire::{Confirm, InquireError};
 use thiserror::Error;
 use workflow::{
     config::{Config, ConfigError},
-    git::{GitError, GitRepository},
+    git::{to_branch_name, GitError, GitRepository},
     jira::{JiraError, JiraServer},
 };
 
@@ -114,11 +114,11 @@ async fn run() -> Result<(), WfError> {
                 .ok_or(WfError::ConfigurationNotSet)
                 .and_then(|c| JiraServer::try_from(c).map_err(WfError::from))?;
 
-            let issue = jira.get_issue(ticket_id).await?;
+            let issue = jira.get_issue(&ticket_id).await?;
             println!("Issue: {:#?}", issue);
             let branch_name = format!("{}-{}", issue.key, to_branch_name(&issue.summary));
             GitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
-            println!("Branch created");
+            println!("Branch {} created from issue {}", branch_name, ticket_id);
         }
 
         WfCommands::Push => {
@@ -131,15 +131,4 @@ async fn run() -> Result<(), WfError> {
         }
     }
     Ok(())
-}
-
-fn to_branch_name(str: &str) -> String {
-    str.chars()
-        .map(|c: char| -> char {
-            match c.to_ascii_lowercase() {
-                m if m.is_ascii_lowercase() => m,
-                _ => '-',
-            }
-        })
-        .collect()
 }

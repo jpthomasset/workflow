@@ -113,3 +113,53 @@ impl GitRepository {
             .map_err(GitError::CannotPushToOrigin)
     }
 }
+
+pub fn to_branch_name(str: &str) -> String {
+    str.chars()
+        .map(|c: char| -> char {
+            match c.to_ascii_lowercase() {
+                m if m.is_ascii_lowercase() || m.is_ascii_digit() => m,
+                _ => '-',
+            }
+        })
+        .fold(String::default(), |acc, c| -> String {
+            if c == '-' && acc.ends_with('-') {
+                acc
+            } else {
+                format!("{}{}", acc, c)
+            }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_branch_name_convertion() {
+        let input = "This is a string";
+        let expected = "this-is-a-string";
+        assert_eq!(to_branch_name(input), expected);
+    }
+
+    #[test]
+    fn test_branch_name_remove_non_letter() {
+        let input = "This is a string on f🔥re";
+        let expected = "this-is-a-string-on-f-re";
+        assert_eq!(to_branch_name(input), expected);
+    }
+
+    #[test]
+    fn test_branch_name_keep_number() {
+        let input = "This is a string with a 9";
+        let expected = "this-is-a-string-with-a-9";
+        assert_eq!(to_branch_name(input), expected);
+    }
+
+    #[test]
+    fn test_branch_name_strip_dash() {
+        let input = "This is a string with a     big space";
+        let expected = "this-is-a-string-with-a-big-space";
+        assert_eq!(to_branch_name(input), expected);
+    }
+}
