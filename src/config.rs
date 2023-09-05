@@ -54,11 +54,11 @@ impl StringValidator for UrlValidator {
 
 impl Config {
     pub fn load() -> Result<Self, ConfigError> {
-        confy::load(env!("CARGO_PKG_NAME"), None).map_err(|x| x.into())
+        Ok(confy::load(env!("CARGO_PKG_NAME"), None)?)
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        confy::store(env!("CARGO_PKG_NAME"), None, self).map_err(|x| x.into())
+        Ok(confy::store(env!("CARGO_PKG_NAME"), None, self)?)
     }
 
     pub fn is_set(&self) -> bool {
