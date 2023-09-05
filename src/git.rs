@@ -101,8 +101,6 @@ impl GitRepository {
 
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            //let path = format!("{}/.ssh/id_rsa", env::var("HOME").unwrap());
-            //Cred::ssh_key(username_from_url.unwrap(), None, Path::new(&path), None)
             Cred::ssh_key_from_agent(username_from_url.unwrap())
         });
 
