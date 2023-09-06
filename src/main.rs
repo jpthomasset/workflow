@@ -1,12 +1,12 @@
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
-use confy::ConfyError;
+use clap::{Error, Parser, Subcommand};
 use inquire::{Confirm, InquireError};
 use thiserror::Error;
 use workflow::{
+    adapt_err::Adapt,
     config::{Config, ConfigError},
-    git::{to_branch_name, GitError, GitRepository},
+    git::{to_branch_name, GitError, GitRepository, LocalGitRepository},
     jira::{JiraError, JiraServer},
 };
 
@@ -37,44 +37,16 @@ enum WfCommands {
 pub enum WfError {
     #[error("Configuration is not set, please run init command first")]
     ConfigurationNotSet,
-    #[error("{0}")]
-    InitializationError(ConfigError),
-    #[error("Configuration cannot be loaded: {0}")]
-    CannotLoadConfiguration(ConfyError),
-    #[error("Configuration cannot be saved: {0}")]
-    CannotSaveConfiguration(ConfyError),
     #[error("Jira error: {0}")]
-    JiraError(JiraError),
+    JiraError(#[from] JiraError),
     #[error("Git error: {0}")]
-    GitError(GitError),
+    GitError(#[from] GitError),
     #[error("Input error: {0}")]
-    InquireError(InquireError),
+    InquireError(#[from] InquireError),
     #[error("Configuration error: {0}")]
-    ConfigError(ConfigError),
-}
-
-impl From<JiraError> for WfError {
-    fn from(value: JiraError) -> Self {
-        WfError::JiraError(value)
-    }
-}
-
-impl From<GitError> for WfError {
-    fn from(value: GitError) -> Self {
-        WfError::GitError(value)
-    }
-}
-
-impl From<ConfigError> for WfError {
-    fn from(value: ConfigError) -> Self {
-        WfError::ConfigError(value)
-    }
-}
-
-impl From<InquireError> for WfError {
-    fn from(value: InquireError) -> Self {
-        WfError::InquireError(value)
-    }
+    ConfigError(#[from] ConfigError),
+    #[error("{0}")]
+    CliArgsError(#[from] Error),
 }
 
 #[tokio::main]
@@ -88,8 +60,19 @@ async fn main() -> ExitCode {
     }
 }
 
+fn command_init(config: &Config) -> Result<(), WfError> {
+    if config.is_set() && 
+        Confirm::new("Warning, your configuration is already defined, do you want to continue and overwrite it?")
+            .with_default(false)
+            .prompt()? {
+        return Ok(());
+    }
+
+    Config::init(Some(config))?.save().adapt()
+}
+
 async fn run() -> Result<(), WfError> {
-    let args = WfArgs::parse();
+    let args = WfArgs::try_parse()?;
     let config = Config::load()?;
 
     if config.is_not_set() && args.command != WfCommands::Init {
@@ -98,13 +81,7 @@ async fn run() -> Result<(), WfError> {
 
     match args.command {
         WfCommands::Init => {
-            if config.is_set() && !Confirm::new("Warning, your configuration is already defined, do you want to continue and overwrite it?")
-                    .with_default(false)
-                    .prompt()? {
-                return Ok(());
-            }
-            let config = Config::init(Some(&config)).map_err(WfError::InitializationError)?;
-            config.save()?;
+            command_init(&config)?;
         }
 
         WfCommands::Start { ticket_id } => {
@@ -117,13 +94,13 @@ async fn run() -> Result<(), WfError> {
             let issue = jira.get_issue(&ticket_id).await?;
             println!("Issue: {:#?}", issue);
             let branch_name = format!("{}-{}", issue.key, to_branch_name(&issue.summary));
-            GitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
+            LocalGitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
             println!("Branch {} created from issue {}", branch_name, ticket_id);
         }
 
         WfCommands::Push => {
             println!("Pushing");
-            GitRepository::discover()?.push()?;
+            LocalGitRepository::discover()?.push()?;
         }
 
         WfCommands::Noop => {

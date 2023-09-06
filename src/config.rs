@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-use crate::adapt_err::AdaptErr;
+use crate::adapt_err::Adapt;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {

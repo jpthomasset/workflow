@@ -59,23 +59,11 @@ pub struct JiraStatus {
 #[derive(Debug, Error)]
 pub enum JiraError {
     #[error("{0}")]
-    RequestError(ReqwestError),
+    RequestError(#[from] ReqwestError),
     #[error("Invalid server url {0}")]
-    InvalidUrl(ParseError),
+    InvalidUrl(#[from] ParseError),
     #[error("Issue {0} not found")]
     IssueNotFound(String),
-}
-
-impl From<ParseError> for JiraError {
-    fn from(value: ParseError) -> Self {
-        JiraError::InvalidUrl(value)
-    }
-}
-
-impl From<ReqwestError> for JiraError {
-    fn from(value: ReqwestError) -> Self {
-        JiraError::RequestError(value)
-    }
 }
 
 impl JiraUser {

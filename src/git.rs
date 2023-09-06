@@ -1,10 +1,6 @@
 use git2::{Cred, Error, PushOptions, RemoteCallbacks, Repository};
 use thiserror::Error;
 
-pub struct GitRepository {
-    inner: Repository,
-}
-
 #[derive(Debug, Error)]
 pub enum GitError {
     #[error("Cannot open repository")]
@@ -27,14 +23,30 @@ pub enum GitError {
     CannotPushToOrigin(Error),
 }
 
-impl GitRepository {
+pub trait GitRepository {
+    fn create_and_checkout_branch(
+        &self,
+        new_branch: &str,
+        from_branch: &str,
+    ) -> Result<(), GitError>;
+
+    fn push(&self) -> Result<(), GitError>;
+}
+
+pub struct LocalGitRepository {
+    inner: Repository,
+}
+
+impl LocalGitRepository {
     pub fn discover() -> Result<Self, GitError> {
         let inner = Repository::discover(".").map_err(|_| GitError::CannotOpenRepository)?;
 
         Ok(Self { inner })
     }
+}
 
-    pub fn create_and_checkout_branch(
+impl GitRepository for LocalGitRepository {
+    fn create_and_checkout_branch(
         &self,
         new_branch: &str,
         from_branch: &str,
@@ -81,7 +93,7 @@ impl GitRepository {
         Ok(())
     }
 
-    pub fn push(&self) -> Result<(), GitError> {
+    fn push(&self) -> Result<(), GitError> {
         let reference = self.inner.head().map_err(|_| GitError::CannotGetHead)?;
         if !reference.is_branch() {
             return Err(GitError::NotInABranch);
