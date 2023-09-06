@@ -71,6 +71,29 @@ fn command_init(config: &Config) -> Result<(), WfError> {
     Config::init(Some(config))?.save().adapt()
 }
 
+async fn command_start(config: &Config, ticket_id: &str) -> Result<(), WfError> {
+    let jira = config
+        .jira
+        .as_ref()
+        .ok_or(WfError::ConfigurationNotSet)
+        .and_then(|c| JiraServer::try_from(c).map_err(WfError::from))?;
+
+    let issue = jira.get_issue(ticket_id).await?;
+    let branch_name = format!("{}-{}", issue.key, to_branch_name(&issue.summary));
+
+    println!("Found issue {}: {}", issue.key, issue.summary);
+    let message = format!("Do you want to create the branch `{}`?", branch_name);
+    if !Confirm::new(&message)
+            .with_default(true)
+            .prompt()? {
+        return Ok(());
+    }
+    LocalGitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
+    println!("Branch {} created from issue {}", branch_name, ticket_id);
+
+    Ok(())
+}
+
 async fn run() -> Result<(), WfError> {
     let args = WfArgs::try_parse()?;
     let config = Config::load()?;
@@ -85,21 +108,10 @@ async fn run() -> Result<(), WfError> {
         }
 
         WfCommands::Start { ticket_id } => {
-            let jira = config
-                .jira
-                .as_ref()
-                .ok_or(WfError::ConfigurationNotSet)
-                .and_then(|c| JiraServer::try_from(c).map_err(WfError::from))?;
-
-            let issue = jira.get_issue(&ticket_id).await?;
-            println!("Issue: {:#?}", issue);
-            let branch_name = format!("{}-{}", issue.key, to_branch_name(&issue.summary));
-            LocalGitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
-            println!("Branch {} created from issue {}", branch_name, ticket_id);
+            command_start(&config, &ticket_id).await?;
         }
 
         WfCommands::Push => {
-            println!("Pushing");
             LocalGitRepository::discover()?.push()?;
         }
 
