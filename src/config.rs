@@ -1,12 +1,9 @@
+use std::path::Path;
+
 use confy::ConfyError;
-use inquire::{
-    min_length, required,
-    validator::{StringValidator, Validation},
-    InquireError, Text,
-};
+use inquire::InquireError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use url::Url;
 
 use crate::adapt_err::Adapt;
 
@@ -22,8 +19,15 @@ pub struct JiraConfig {
     pub token: String,
 }
 
-#[derive(Clone, Default)]
-pub struct UrlValidator {}
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct RepoConfig {
+    pub branches: Option<BranchsName>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BranchsName {
+    pub dev: String,
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -31,15 +35,6 @@ pub enum ConfigError {
     ConfyError(#[from] ConfyError),
     #[error("Input error {0}")]
     InquireError(#[from] InquireError),
-}
-
-impl StringValidator for UrlValidator {
-    fn validate(&self, input: &str) -> Result<Validation, inquire::CustomUserError> {
-        match Url::parse(input) {
-            Ok(_) => Ok(Validation::Valid),
-            Err(e) => Ok(Validation::Invalid(e.into())),
-        }
-    }
 }
 
 impl Config {
@@ -58,50 +53,24 @@ impl Config {
     pub fn is_not_set(&self) -> bool {
         !self.is_set()
     }
+}
 
-    pub fn init(old_config: Option<&Self>) -> Result<Self, ConfigError> {
-        let banner = format!(
-            "
-        ██╗    ██╗ ██████╗ ██████╗ ██╗  ██╗███████╗██╗      ██████╗ ██╗    ██╗
-        ██║    ██║██╔═══██╗██╔══██╗██║ ██╔╝██╔════╝██║     ██╔═══██╗██║    ██║
-        ██║ █╗ ██║██║   ██║██████╔╝█████╔╝ █████╗  ██║     ██║   ██║██║ █╗ ██║
-        ██║███╗██║██║   ██║██╔══██╗██╔═██╗ ██╔══╝  ██║     ██║   ██║██║███╗██║
-        ╚███╔███╔╝╚██████╔╝██║  ██║██║  ██╗██║     ███████╗╚██████╔╝╚███╔███╔╝
-         ╚══╝╚══╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ v{}
+impl RepoConfig {
+    pub fn load(repo_workdir: &Path) -> Result<Self, ConfigError> {
+        let path = repo_workdir.join(".workflow");
+        confy::load_path(path).adapt()
+    }
 
-                               <<<< Initialisation >>>>
-         ",
-            env!("CARGO_PKG_VERSION")
-        );
-        println!("{}", banner);
+    pub fn save(&self, repo_workdir: &Path) -> Result<(), ConfigError> {
+        let path = repo_workdir.join(".workflow");
+        confy::store_path(path, self).adapt()
+    }
 
-        let jira_config = old_config.and_then(|c| c.jira.as_ref());
+    pub fn is_set(&self) -> bool {
+        self.branches.is_some()
+    }
 
-        let old_host = jira_config.map(|j| j.host.as_ref()).unwrap_or_default();
-
-        let host = Text::new("What's the url of your Jira instance?")
-            .with_validator(required!())
-            .with_validator(UrlValidator::default())
-            .with_default(old_host)
-            .prompt()?;
-
-        let old_user = jira_config.map(|j| j.user.as_ref()).unwrap_or_default();
-
-        let user = Text::new("What's your username?")
-            .with_validator(required!())
-            .with_validator(min_length!(3))
-            .with_default(old_user)
-            .prompt()?;
-
-        println!("A token is required to authenticate you on Jira. You can create a token from https://id.atlassian.com/manage-profile/security/api-tokens");
-
-        let token = Text::new("What's your token?")
-            .with_validator(required!())
-            .with_validator(min_length!(3))
-            .prompt()?;
-
-        Ok(Self {
-            jira: Some(JiraConfig { host, user, token }),
-        })
+    pub fn is_not_set(&self) -> bool {
+        !self.is_set()
     }
 }

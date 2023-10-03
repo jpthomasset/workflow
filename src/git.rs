@@ -1,4 +1,6 @@
-use git2::{Cred, Error, PushOptions, RemoteCallbacks, Repository};
+use std::path::Path;
+
+use git2::{BranchType, Cred, Error, PushOptions, RemoteCallbacks, Repository};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -21,6 +23,10 @@ pub enum GitError {
     OriginNotFound,
     #[error("Cannot push to origin: {0}")]
     CannotPushToOrigin(Error),
+    #[error("Cannot list branches {0}")]
+    CannotListBranches(Error),
+    #[error("Git Error")]
+    GitErro(#[from] Error),
 }
 
 pub trait GitRepository {
@@ -31,6 +37,10 @@ pub trait GitRepository {
     ) -> Result<(), GitError>;
 
     fn push(&self) -> Result<(), GitError>;
+
+    fn workdir(&self) -> Option<&Path>;
+
+    fn branches(&self) -> Result<Vec<String>, GitError>;
 }
 
 pub struct LocalGitRepository {
@@ -123,6 +133,27 @@ impl GitRepository for LocalGitRepository {
         remote
             .push(&[refspec], Some(&mut push_options))
             .map_err(GitError::CannotPushToOrigin)
+    }
+
+    fn workdir(&self) -> Option<&Path> {
+        self.inner.workdir()
+    }
+
+    fn branches(&self) -> Result<Vec<String>, GitError> {
+        let mut result: Vec<String> = Vec::new();
+
+        let branches = self
+            .inner
+            .branches(Some(BranchType::Local))
+            .map_err(GitError::CannotPushToOrigin)?;
+
+        for branch in branches {
+            if let Some(name) = branch?.0.name()? {
+                result.push(String::from(name));
+            }
+        }
+
+        Ok(result)
     }
 }
 

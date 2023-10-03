@@ -1,53 +1,14 @@
 use std::process::ExitCode;
 
-use clap::{Error, Parser, Subcommand};
-use inquire::{Confirm, InquireError};
-use thiserror::Error;
+use clap::Parser;
+
 use workflow::{
-    adapt_err::Adapt,
-    config::{Config, ConfigError},
-    git::{to_branch_name, GitError, GitRepository, LocalGitRepository},
-    jira::{JiraError, JiraServer},
+    cli::{WfArgs, WfCommands, WfTestCommands},
+    command,
+    config::{Config, RepoConfig},
+    errors::WfError,
+    git::{GitRepository, LocalGitRepository},
 };
-
-#[derive(Debug, Parser)]
-#[command(name = "wf")]
-#[command(about = "A tool to automate some common dev tasks", long_about = None)]
-struct WfArgs {
-    #[command(subcommand)]
-    command: WfCommands,
-}
-
-#[derive(Debug, Subcommand, PartialEq, Eq)]
-enum WfCommands {
-    /// Initialize workflow app settings
-    Init,
-    /// Start a new workflow in the current repository
-    Start {
-        #[arg(required = true, help = "Ticket id to create the branch from")]
-        ticket_id: String,
-    },
-    /// Push current work branch to remote repository
-    Push,
-    /// Do nothing, just to test
-    Noop,
-}
-
-#[derive(Debug, Error)]
-pub enum WfError {
-    #[error("Configuration is not set, please run init command first")]
-    ConfigurationNotSet,
-    #[error("Jira error: {0}")]
-    JiraError(#[from] JiraError),
-    #[error("Git error: {0}")]
-    GitError(#[from] GitError),
-    #[error("Input error: {0}")]
-    InquireError(#[from] InquireError),
-    #[error("Configuration error: {0}")]
-    ConfigError(#[from] ConfigError),
-    #[error("{0}")]
-    CliArgsError(#[from] Error),
-}
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -60,55 +21,53 @@ async fn main() -> ExitCode {
     }
 }
 
-fn command_init(config: &Config) -> Result<(), WfError> {
-    if config.is_set() && 
-        Confirm::new("Warning, your configuration is already defined, do you want to continue and overwrite it?")
-            .with_default(false)
-            .prompt()? {
-        return Ok(());
-    }
+fn load_config(auto_init: bool) -> Result<Config, WfError> {
+    let config = Config::load()?;
 
-    Config::init(Some(config))?.save().adapt()
+    if config.is_not_set() && auto_init {
+        print!("Configuration is not set, starting initialization");
+        command::command_init_config(config)
+    } else {
+        Ok(config)
+    }
 }
 
-async fn command_start(config: &Config, ticket_id: &str) -> Result<(), WfError> {
-    let jira = config
-        .jira
-        .as_ref()
-        .ok_or(WfError::ConfigurationNotSet)
-        .and_then(|c| JiraServer::try_from(c).map_err(WfError::from))?;
+fn load_repo_config(repo: &impl GitRepository) -> Result<RepoConfig, WfError> {
+    let path = repo.workdir().ok_or(WfError::NoGitWorkingDirectory)?;
+    let config = RepoConfig::load(path)?;
 
-    let issue = jira.get_issue(ticket_id).await?;
-    let branch_name = format!("{}-{}", issue.key, to_branch_name(&issue.summary));
-
-    println!("Found issue {}: {}", issue.key, issue.summary);
-    let message = format!("Do you want to create the branch `{}`?", branch_name);
-    if !Confirm::new(&message)
-            .with_default(true)
-            .prompt()? {
-        return Ok(());
+    if config.is_not_set() {
+        print!("Repository configuration is not set, starting initialization");
+        command::command_init_repo(config, repo)
+    } else {
+        Ok(config)
     }
-    LocalGitRepository::discover()?.create_and_checkout_branch(&branch_name, "develop")?;
-    println!("Branch {} created from issue {}", branch_name, ticket_id);
-
-    Ok(())
 }
 
 async fn run() -> Result<(), WfError> {
     let args = WfArgs::try_parse()?;
-    let config = Config::load()?;
-
-    if config.is_not_set() && args.command != WfCommands::Init {
-        return Err(WfError::ConfigurationNotSet);
-    }
+    let auto_init: bool = args.command != WfCommands::Init;
+    let config = load_config(auto_init)?;
 
     match args.command {
         WfCommands::Init => {
-            command_init(&config)?;
+            command::command_init_config(config)?;
+            if let Ok(repo) = LocalGitRepository::discover() {
+                let repo_config = load_repo_config(&repo).unwrap_or(RepoConfig::default());
+                command::command_init_repo(repo_config, &repo)?;
+            }
         }
 
+        WfCommands::Test(test_arg) => match test_arg {
+            WfTestCommands::Sub1 => println!("sub 1"),
+            WfTestCommands::Sub2 => println!("sub 2"),
+            WfTestCommands::All => println!("All"),
+        },
+
         WfCommands::Start { ticket_id } => {
-            command_start(&config, &ticket_id).await?;
+            let repo = LocalGitRepository::discover()?;
+            let repo_config = load_repo_config(&repo)?;
+            command::command_start(&config, &repo_config, &repo, &ticket_id).await?;
         }
 
         WfCommands::Push => {

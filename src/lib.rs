@@ -1,6 +1,10 @@
 pub mod adapt_err;
+pub mod cli;
+pub mod command;
 pub mod config;
+pub mod errors;
 pub mod git;
+pub mod init;
 pub mod jira;
 
 pub fn repeat_until_ok<F, T, E>(mut f: F) -> T
