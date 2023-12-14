@@ -172,6 +172,8 @@ pub fn to_branch_name(str: &str) -> String {
                 format!("{}{}", acc, c)
             }
         })
+        .trim_matches('-')
+        .to_string()
 }
 
 #[cfg(test)]
@@ -203,6 +205,13 @@ mod tests {
     fn test_branch_name_strip_dash() {
         let input = "This is a string with a     big space";
         let expected = "this-is-a-string-with-a-big-space";
+        assert_eq!(to_branch_name(input), expected);
+    }
+
+    #[test]
+    fn test_branch_name_strip_leading_dash() {
+        let input = "[Some Name] - This is a string";
+        let expected = "some-name-this-is-a-string";
         assert_eq!(to_branch_name(input), expected);
     }
 }

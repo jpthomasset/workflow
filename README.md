@@ -2,7 +2,8 @@
 Automate your coding workflow
 
 # Todo
-* Create branch from current branch or setup a default branch per repository
+* Create PR
+* Refactor to use git cli instead of libgit2
 
 # Notes
 
